@@ -5,8 +5,12 @@ way to integrate OpenTelemetry observability into your Spring Boot applications.
 
 ## What's New in Spring Boot 4.0
 
-Spring Boot 4.0 introduces an official OpenTelemetry starter from the Spring team. Unlike previous approaches that 
+Spring Boot 4.0 introduces an official OpenTelemetry starter from the Spring team. Unlike previous approaches that
 required multiple dependencies and complex configuration, this starter provides:
+
+> **How was this possible?** The [modularization of Spring Boot](https://spring.io/blog/2025/10/28/modularizing-spring-boot)
+> in version 4.0 enabled the team to create focused, optional starters like this one. To learn more about Spring Boot 4's
+> modular architecture, check out the [modularization examples](https://github.com/danvega/sb4/tree/master/features/modularization).
 
 - **Single dependency**: Just add `spring-boot-starter-opentelemetry`
 - **Automatic OTLP export**: Metrics and traces are exported via the OTLP protocol
@@ -30,12 +34,13 @@ Spring Boot Actuator is Spring's traditional approach to observability and produ
 
 | Aspect | Spring Boot Actuator | OpenTelemetry Starter |
 |--------|---------------------|----------------------|
-| **Protocol** | Prometheus/JMX/custom | OTLP (vendor-neutral) |
-| **Distributed Tracing** | Requires additional setup (Zipkin/Sleuth) | Built-in, automatic |
-| **Backend Lock-in** | Coupled to Prometheus ecosystem | Works with any OTLP backend |
-| **Health Checks** | Built-in `/actuator/health` | Not included |
-| **Production Readiness** | Full suite (info, env, beans, etc.) | Focused on telemetry only |
-| **Setup Complexity** | More endpoints to secure/manage | Single OTLP endpoint |
+| **Protocol** | Prometheus, OTLP, JMX, + many others | OTLP (vendor-neutral) |
+| **Distributed Tracing** | Built-in via Micrometer Tracing (add bridge dependency) | Built-in, automatic |
+| **Backend Lock-in** | Vendor-neutral via Micrometer (supports 15+ backends including OTLP) | Works with any OTLP backend |
+| **Health Checks** | Built-in `/actuator/health` | Not included (requires Actuator) |
+| **Production Readiness** | Full suite (info, env, beans, metrics, etc.) | Focused on telemetry only |
+| **Setup Complexity** | More endpoints to configure/secure | Single OTLP endpoint |
+| **Dependencies (Spring Boot 4)** | `spring-boot-starter-actuator` + bridge deps | `spring-boot-starter-opentelemetry` |
 
 **Choose Actuator when:**
 - You need health checks, readiness/liveness probes for Kubernetes
@@ -45,7 +50,7 @@ Spring Boot Actuator is Spring's traditional approach to observability and produ
 **Choose OpenTelemetry Starter when:**
 - You want vendor-neutral observability (easily switch backends)
 - Distributed tracing across services is a priority
-- You prefer push-based telemetry over pull-based scraping
+- You prefer push-based telemetry to pull-based scraping
 
 **Note:** They're not mutually exclusive—many production apps use both (Actuator for health/readiness, OTel for telemetry).
 
@@ -98,6 +103,10 @@ management:
       export:
         otlp:
           endpoint: http://localhost:4318/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: http://localhost:4318/v1/logs
 ```
 
 ### Configuration Notes
@@ -177,10 +186,67 @@ With `spring-boot-starter-opentelemetry`, you get automatic instrumentation for:
 Your application logs automatically include trace and span IDs. Look for log entries like:
 
 ```
-2025-11-18 10:30:45 [traceId=abc123, spanId=def456] INFO  d.d.o.HomeController - Greeting user: World
+2025-12-22T11:30:05.801-05:00  INFO 13165 --- [ot] [nio-8080-exec-2] [f64d5e13e35ac0429ad2974512a3c4a7-2d46fc21f9ddfb2d] dev.danvega.ot.HomeController            : Greeting user: World
 ```
 
-This allows you to correlate logs with traces in Grafana.
+The trace context appears as `[traceId-spanId]` (e.g., `f64d5e13e35ac0429ad2974512a3c4a7-2d46fc21f9ddfb2d`).
+
+### Understanding Trace and Span IDs
+
+- **Trace ID** (`f64d5e13e35ac0429ad2974512a3c4a7`): Identifies the entire request flow across all services. Every log and span from a single request shares this ID.
+- **Span ID** (`2d46fc21f9ddfb2d`): Identifies a specific operation within the trace. A single request may have multiple spans (controller → database → external API).
+
+### Why This Matters
+
+1. **Jump from trace to logs**: In Grafana, when viewing a trace in Tempo, you can click on a span to see only the logs emitted during that exact operation—no more searching through thousands of log lines.
+
+2. **Jump from logs to trace**: If you spot an error in your logs, copy the trace ID and search for it in Tempo to see the full request flow and pinpoint where it failed.
+
+3. **Debug specific operations**: If a request calls multiple services or performs several operations, the span ID tells you exactly which part of the request generated a particular log entry.
+
+### Example: Multi-Span Request
+
+```
+Request: GET /greet/World
+├── Span A (controller) ─── logs show span A's ID
+│   └── Span B (simulateWork) ─── logs show span B's ID
+```
+
+When you see a log with span B's ID, you know it happened during `simulateWork()`, not the controller method.
+
+## Exporting Logs via OTLP
+
+This demo is configured to export logs to Grafana/Loki via OTLP. This allows you to view, search, and correlate logs with traces directly in Grafana.
+
+### How It Works
+
+Spring Boot provides auto-configuration for exporting logs in OTLP format, but does not install an appender into Logback by default. This demo includes:
+
+1. **Logback appender dependency** (`opentelemetry-logback-appender-1.0`)
+2. **OTLP endpoint configuration** in `application.yaml`
+3. **Custom Logback configuration** (`logback-spring.xml`) that adds the OTEL appender
+4. **Appender installation bean** (`InstallOpenTelemetryAppender`) to wire the OpenTelemetry instance
+
+### Viewing Logs in Grafana
+
+1. Open http://localhost:3000
+2. Go to **Explore** (compass icon)
+3. Select **Loki** as the data source
+4. Query for logs: `{service_name="ot"}`
+5. Click on a log entry to see its trace context, then click the trace ID to jump directly to the trace in Tempo
+
+### Configuration Reference
+
+```yaml
+management:
+  opentelemetry:
+    logging:
+      export:
+        otlp:
+          endpoint: http://localhost:4318/v1/logs
+```
+
+For more details, see the [OpenTelemetry with Spring Boot blog post](https://spring.io/blog/2025/11/18/opentelemetry-with-spring-boot#exporting-logs).
 
 ## Next Steps
 
@@ -195,9 +261,7 @@ public void myMethod() {
 }
 ```
 
-2. **Export logs via OTLP** by adding a Logback appender (see the Spring blog post)
-
-3. **Add trace ID to responses** using a servlet filter:
+2. **Add trace ID to responses** using a servlet filter:
 
 ```java
 @Component
@@ -208,7 +272,7 @@ class TraceIdFilter extends OncePerRequestFilter {
 }
 ```
 
-4. **Call other services** to see distributed tracing across multiple applications
+3. **Call other services** to see distributed tracing across multiple applications
 
 ## Resources
 
