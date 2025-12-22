@@ -2,10 +2,6 @@ spring:
   application:
     name: ot
 
-management:
-  tracing:
-    sampling:
-      probability: 1.0
   otlp:
     metrics:
       export:
@@ -20,5 +16,13 @@ management:
         otlp:
           endpoint: http://localhost:4318/v1/logs
 
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+
 server:
   shutdown: immediate
+logging:
+  level:
+    dev.danvega: debug
