@@ -218,14 +218,86 @@ When you see a log with span B's ID, you know it happened during `simulateWork()
 
 This demo is configured to export logs to Grafana/Loki via OTLP. This allows you to view, search, and correlate logs with traces directly in Grafana.
 
+### Important: Spring Boot Version Requirement
+
+**Spring Boot 4.0.1 or later is required** for OTLP logging export without the actuator module.
+
+In Spring Boot 4.0.0, the `OtlpLoggingAutoConfiguration` was part of the actuator module, requiring you to add `spring-boot-starter-actuator` just to export logs. This was fixed in [issue #48488](https://github.com/spring-projects/spring-boot/issues/48488) and released in Spring Boot 4.0.1, which moved the logging export auto-configuration to the core OpenTelemetry module.
+
 ### How It Works
 
-Spring Boot provides auto-configuration for exporting logs in OTLP format, but does not install an appender into Logback by default. This demo includes:
+Spring Boot provides auto-configuration for exporting logs in OTLP format, but does not install an appender into Logback by default. To enable log export, you need:
 
-1. **Logback appender dependency** (`opentelemetry-logback-appender-1.0`)
-2. **OTLP endpoint configuration** in `application.yaml`
-3. **Custom Logback configuration** (`logback-spring.xml`) that adds the OTEL appender
-4. **Appender installation bean** (`InstallOpenTelemetryAppender`) to wire the OpenTelemetry instance
+#### 1. Add the Logback Appender Dependency
+
+```xml
+<dependency>
+    <groupId>io.opentelemetry.instrumentation</groupId>
+    <artifactId>opentelemetry-logback-appender-1.0</artifactId>
+    <version>2.21.0-alpha</version>
+</dependency>
+```
+
+> **Note:** The `-alpha` suffix indicates this is still marked as unstable by the OpenTelemetry project. There are currently no stable (non-alpha) versions of this appender.
+
+#### 2. Create `logback-spring.xml`
+
+Create `src/main/resources/logback-spring.xml` to add the OpenTelemetry appender:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/base.xml"/>
+
+    <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="OTEL"/>
+    </root>
+</configuration>
+```
+
+This configuration:
+- Imports the default Spring Boot logging configuration
+- Adds an OpenTelemetry appender that sends logs to the OpenTelemetry SDK
+- Attaches both the console and OTEL appenders to the root logger
+
+#### 3. Create the Appender Installation Bean
+
+The OpenTelemetry appender needs to know which `OpenTelemetry` instance to use. Create this component:
+
+```java
+@Component
+class InstallOpenTelemetryAppender implements InitializingBean {
+
+    private final OpenTelemetry openTelemetry;
+
+    InstallOpenTelemetryAppender(OpenTelemetry openTelemetry) {
+        this.openTelemetry = openTelemetry;
+    }
+
+    @Override
+    public void afterPropertiesSet() {
+        OpenTelemetryAppender.install(this.openTelemetry);
+    }
+}
+```
+
+This bean:
+- Gets the auto-configured `OpenTelemetry` instance injected by Spring Boot
+- Installs it into the Logback appender after the Spring context is ready
+- Enables the appender to send logs through the OpenTelemetry SDK to the OTLP endpoint
+
+#### 4. Docker Compose Auto-Configuration
+
+When using `spring-boot-docker-compose` with the `grafana/otel-lgtm` image, Spring Boot **automatically configures** the OTLP endpoints for metrics, traces, and logs. You don't need to specify explicit endpoint URLs in `application.yaml`.
+
+The auto-configuration detects the running container and configures:
+- Metrics endpoint: `http://localhost:4318/v1/metrics`
+- Traces endpoint: `http://localhost:4318/v1/traces`
+- Logs endpoint: `http://localhost:4318/v1/logs`
 
 ### Viewing Logs in Grafana
 
@@ -235,7 +307,9 @@ Spring Boot provides auto-configuration for exporting logs in OTLP format, but d
 4. Query for logs: `{service_name="ot"}`
 5. Click on a log entry to see its trace context, then click the trace ID to jump directly to the trace in Tempo
 
-### Configuration Reference
+### Manual Configuration (Optional)
+
+If you're not using Docker Compose auto-configuration, you can explicitly set the endpoint:
 
 ```yaml
 management:

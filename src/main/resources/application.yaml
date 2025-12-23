@@ -25,4 +25,6 @@ server:
   shutdown: immediate
 logging:
   level:
-    dev.danvega: debug
+    dev.danvega: INFO
+    org.springframework.boot.actuator.autoconfigure.opentelemetry: DEBUG
+    org.springframework.boot.docker.compose: DEBUG
