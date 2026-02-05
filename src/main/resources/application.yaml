@@ -1,20 +1,20 @@
 spring:
   application:
     name: ot
-    datasource:
-      url: jdbc:h2:mem:testdb
-      driver-class-name: org.h2.Driver
-      username: sa
-      password:
-    h2:
-      console:
-        enabled: true
-        path: /h2-console
-    jpa:
-      hibernate:
-        ddl-auto: create-drop
-      show-sql: true
-      
+  datasource:
+    url: jdbc:otel:h2:mem:testdb
+    driver-class-name: io.opentelemetry.instrumentation.jdbc.OpenTelemetryDriver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    
   otlp:
     metrics:
       export:
