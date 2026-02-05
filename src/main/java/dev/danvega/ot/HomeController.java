@@ -11,6 +11,12 @@ public class HomeController {
 
     private static final Logger log = LoggerFactory.getLogger(HomeController.class);
 
+    private final UserRepository userRepository;
+
+    public HomeController(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
     @GetMapping("/")
     public String home() {
         log.info("Home endpoint called");
@@ -21,7 +27,9 @@ public class HomeController {
     public String greet(@PathVariable String name) {
         log.info("Greeting user: {}", name);
         simulateWork();
-        return "Hello, " + name + "!";
+        return userRepository.findByName(name)
+                .map(User::getPersonalizedMessage)
+                .orElse("Hello, " + name + "!");
     }
 
     @GetMapping("/slow")
